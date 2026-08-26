@@ -10,6 +10,22 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:11434"
     cors_origins: list[str] = ["http://localhost:3000"]
 
+    # Community research (Reddit now; more platforms later)
+    reddit_enabled: bool = True
+    reddit_result_limit: int = 5
+    reddit_user_agent: str = "LiftAI/1.0 by u/liftai (lifting coach; contact: demo@liftai.app)"
+    reddit_client_id: str = ""
+    reddit_client_secret: str = ""
+    reddit_subreddits: list[str] = [
+        "weightroom",
+        "Fitness",
+        "powerlifting",
+        "Stronglifts",
+        "StartingStrength",
+        "naturalbodybuilding",
+        "GymAdvice",
+    ]
+
     class Config:
         env_file = ".env"
 

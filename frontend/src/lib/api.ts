@@ -97,6 +97,16 @@ export interface Exercise {
   equipment: string;
 }
 
+export interface CommunitySource {
+  platform: string;
+  title: string;
+  url: string;
+  snippet: string;
+  score: number;
+  subreddit: string | null;
+  num_comments: number;
+}
+
 export const api = {
   login: (email: string, password: string) =>
     request<{ access_token: string; user: User }>("/auth/login", {
@@ -122,7 +132,7 @@ export const api = {
   progression: () => request<ProgressionRecommendation[]>("/progression"),
 
   chat: (message: string, history: { role: string; content: string }[]) =>
-    request<{ reply: string }>("/coach/chat", {
+    request<{ reply: string; sources?: CommunitySource[] }>("/coach/chat", {
       method: "POST",
       body: JSON.stringify({ message, history }),
     }),

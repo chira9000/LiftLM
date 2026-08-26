@@ -1,13 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Send, Bot, User, Sparkles } from "lucide-react";
+import { Send, Bot, User, Sparkles, ExternalLink } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
-import { api } from "@/lib/api";
+import { api, type CommunitySource } from "@/lib/api";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
+  sources?: CommunitySource[];
 }
 
 const SUGGESTIONS = [
@@ -36,7 +37,10 @@ export default function CoachPage() {
     try {
       const history = messages.map((m) => ({ role: m.role, content: m.content }));
       const res = await api.chat(text, history);
-      setMessages((prev) => [...prev, { role: "assistant", content: res.reply }]);
+      setMessages((prev) => [
+        ...prev,
+        { role: "assistant", content: res.reply, sources: res.sources ?? [] },
+      ]);
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -54,7 +58,7 @@ export default function CoachPage() {
     <div className="flex h-[calc(100vh-5.5rem)] flex-col lg:h-[calc(100vh-4rem)]">
       <PageHeader
         title="AI Coach"
-        subtitle="Ask about your training — powered by structured analytics"
+        subtitle="Answers from your analytics — plus relevant Reddit lifting threads"
       />
 
       <div className="panel mb-4 flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -66,7 +70,7 @@ export default function CoachPage() {
               </div>
               <p className="mb-1 font-display text-lg font-semibold text-ink">Ask your coach</p>
               <p className="mb-6 max-w-sm text-sm text-surface-muted">
-                Questions are answered from your analytics — volume, e1RM trends, and progression scores.
+                Questions use your analytics plus community threads from lifting subreddits.
               </p>
               <div className="flex max-w-lg flex-wrap justify-center gap-2">
                 {SUGGESTIONS.map((s) => (
@@ -98,6 +102,31 @@ export default function CoachPage() {
                 }`}
               >
                 <div className="whitespace-pre-wrap">{msg.content}</div>
+                {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
+                  <div className="mt-3 border-t border-surface-border pt-3">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-surface-muted">
+                      Reddit sources
+                    </p>
+                    <ul className="space-y-1.5">
+                      {msg.sources.map((s) => (
+                        <li key={s.url}>
+                          <a
+                            href={s.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group flex items-start gap-1.5 text-xs text-brand-400 transition-colors hover:text-brand-300"
+                          >
+                            <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 opacity-70" />
+                            <span>
+                              {s.subreddit ? `r/${s.subreddit}: ` : ""}
+                              {s.title}
+                            </span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
               {msg.role === "user" && (
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-surface-hover text-surface-muted">
@@ -113,10 +142,13 @@ export default function CoachPage() {
                 <Bot className="h-4 w-4" />
               </div>
               <div className="rounded-2xl border border-surface-border bg-surface-raised px-4 py-3">
-                <div className="flex gap-1.5">
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-surface-muted [animation-delay:0ms]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-surface-muted [animation-delay:150ms]" />
-                  <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-surface-muted [animation-delay:300ms]" />
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs text-surface-muted">Searching Reddit + coaching…</p>
+                  <div className="flex gap-1.5">
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-surface-muted [animation-delay:0ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-surface-muted [animation-delay:150ms]" />
+                    <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-surface-muted [animation-delay:300ms]" />
+                  </div>
                 </div>
               </div>
             </div>

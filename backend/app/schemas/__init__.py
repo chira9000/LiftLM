@@ -156,6 +156,17 @@ class ChatRequest(BaseModel):
     history: list[ChatMessage] = []
 
 
+class CommunitySource(BaseModel):
+    platform: str
+    title: str
+    url: str
+    snippet: str = ""
+    score: int = 0
+    subreddit: str | None = None
+    num_comments: int = 0
+
+
 class ChatResponse(BaseModel):
     reply: str
     context_used: dict
+    sources: list[CommunitySource] = []

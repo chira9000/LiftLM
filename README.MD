@@ -83,10 +83,22 @@ Deterministic engine analyzes:
 Outputs a **Progression Score** (0–100) and concrete weight/reps/sets recommendations.
 
 ### AI Coach
-Chat interface powered by structured analytics. Example questions:
+Chat interface powered by structured analytics plus Reddit community search (lifting subreddits). Example questions:
 - "How is my bench progressing?"
 - "What should I do for bench today?"
 - "Why have I stopped progressing on squat?"
+
+Each reply can include linked Reddit sources. Toggle with `REDDIT_ENABLED` in `backend/.env`.
+
+To enable live Reddit search, create a free app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (type: **script**), then set:
+
+```bash
+REDDIT_CLIENT_ID=your_client_id
+REDDIT_CLIENT_SECRET=your_client_secret
+REDDIT_USER_AGENT=LiftAI/1.0 by u/yourusername
+```
+
+Without credentials the coach still works from analytics; community sources may be empty if Reddit blocks unauthenticated requests.
 
 ## LLM Configuration
 
@@ -136,6 +148,7 @@ LiftLM/
 │   │   ├── services/
 │   │   │   ├── analytics/         # Volume, e1RM, trends
 │   │   │   ├── progression/       # Overload engine + scores
+│   │   │   ├── social/            # Reddit (extensible) community research
 │   │   │   └── llm/               # Coach service (mock/ollama/mlx)
 │   │   ├── seed.py                # Sample data
 │   │   └── main.py
