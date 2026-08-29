@@ -107,19 +107,79 @@ Set `LLM_PROVIDER` in `backend/.env`:
 | Provider | Description |
 |----------|-------------|
 | `mock` | Rule-based responses (default, no model needed) |
-| `ollama` | Local Qwen via [Ollama](https://ollama.ai) |
-| `mlx` | Apple Silicon via `mlx-lm` (LoRA-ready) |
+| `mlx` | Apple Silicon via `mlx-lm` (~1–3 GB, recommended on Mac) |
+| `ollama` | Local models via [Ollama](https://ollama.ai) (~1–5 GB small variants) |
+| `openai` | vLLM, SGLang, or any OpenAI-compatible `/v1/chat/completions` server |
 
-For Ollama:
+### Compact local LLM (recommended for laptops)
+
+For a coach that runs fully offline without a 20+ GB download, use a **4B or smaller** quantized model.
+
+**Apple Silicon (MLX)** — no separate server, ~2.5 GB download:
+
 ```bash
-ollama pull qwen2.5:1.5b-instruct
-# Set LLM_PROVIDER=ollama and LLM_MODEL=qwen2.5:1.5b-instruct
+cd backend
+source .venv/bin/activate
+pip install -r requirements-mlx.txt
 ```
 
-For MLX (Apple Silicon):
+```env
+LLM_PROVIDER=mlx
+LLM_MODEL=mlx-community/Qwen3-4B-Instruct-4bit
+```
+
+Even smaller (~1 GB): `mlx-community/Qwen3-1.7B-4bit`
+
+**Ollama** — works on Mac, Linux, and Windows:
+
 ```bash
-pip install mlx-lm
-# Set LLM_PROVIDER=mlx and LLM_MODEL=Qwen/Qwen2.5-1.5B-Instruct
+ollama pull qwen3:4b    # ~2.5 GB
+# ollama pull qwen3:1.7b  # ~1.2 GB, faster but weaker
+```
+
+```env
+LLM_PROVIDER=ollama
+LLM_MODEL=qwen3:4b
+LLM_BASE_URL=http://localhost:11434
+```
+
+The model loads once and stays in memory; first chat may take a few seconds while weights download.
+
+### Qwen3-32B via Ollama (high-end GPU)
+
+Requires ~20 GB VRAM (Q4) or ~35 GB (Q8). A 24 GB GPU (e.g. RTX 4090) runs Q4 comfortably.
+
+```bash
+ollama pull qwen3:32b
+```
+
+```env
+LLM_PROVIDER=ollama
+LLM_MODEL=qwen3:32b
+LLM_BASE_URL=http://localhost:11434
+LLM_THINK=false
+```
+
+Smaller/larger Qwen3 variants: `qwen3:8b`, `qwen3:14b`, `qwen3:235b` (MoE, needs multi-GPU).
+
+### vLLM / SGLang (production GPU server)
+
+Serve `Qwen/Qwen3-32B` with [vLLM](https://docs.vllm.ai) or [SGLang](https://github.com/sgl-project/sglang), then point the backend at the OpenAI-compatible endpoint:
+
+```env
+LLM_PROVIDER=openai
+LLM_MODEL=Qwen/Qwen3-32B
+LLM_BASE_URL=http://localhost:8001/v1
+LLM_TIMEOUT=300
+```
+
+### MLX (Apple Silicon)
+
+See **Compact local LLM** above. Legacy unquantized default:
+
+```env
+LLM_PROVIDER=mlx
+LLM_MODEL=Qwen/Qwen3-8B
 ```
 
 ## API Endpoints

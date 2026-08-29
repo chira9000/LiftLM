@@ -5,9 +5,14 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+psycopg://liftai:liftai@localhost:5433/liftai"
     secret_key: str = "liftai-dev-secret-change-in-production"
     api_key: str = "liftai-demo-key"
-    llm_provider: str = "mock"  # mock | mlx | ollama
-    llm_model: str = "Qwen/Qwen2.5-1.5B-Instruct"
+    llm_provider: str = "mock"  # mock | mlx | ollama | openai
+    llm_model: str = "mlx-community/Qwen3-4B-Instruct-4bit"
     llm_base_url: str = "http://localhost:11434"
+    llm_api_key: str = ""
+    llm_timeout: float = 300.0
+    llm_max_tokens: int = 1024
+    llm_temperature: float = 0.7
+    llm_think: bool = False  # Qwen3 thinking mode (Ollama only)
     cors_origins: list[str] = ["http://localhost:3000"]
 
     # Community research (Reddit now; more platforms later)

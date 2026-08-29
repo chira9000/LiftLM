@@ -1,5 +1,6 @@
-"""LLM service with pluggable providers (mock, ollama, mlx)."""
+"""LLM service with pluggable providers (mock, ollama, mlx, openai)."""
 
+import asyncio
 import json
 from abc import ABC, abstractmethod
 
@@ -46,6 +47,24 @@ def _format_community_block(context: dict) -> str:
         )
     lines.append("--- END COMMUNITY INSIGHTS ---")
     return "\n".join(lines)
+
+
+def _build_full_messages(messages: list[dict], context: dict) -> list[dict]:
+    context_block = (
+        f"\n\n--- TRAINING ANALYTICS ---\n"
+        f"{json.dumps({k: v for k, v in context.items() if k != 'community_insights'}, indent=2)}\n"
+        f"--- END ANALYTICS ---"
+        + _format_community_block(context)
+    )
+    full_messages = [{"role": "system", "content": SYSTEM_PROMPT + context_block}]
+    full_messages.extend(messages)
+    return full_messages
+
+
+def _auth_headers() -> dict[str, str]:
+    if settings.llm_api_key:
+        return {"Authorization": f"Bearer {settings.llm_api_key}"}
+    return {}
 
 
 class MockLLMProvider(LLMProvider):
@@ -127,41 +146,97 @@ class MockLLMProvider(LLMProvider):
 
 
 class OllamaLLMProvider(LLMProvider):
-    async def generate(self, messages: list[dict], context: dict) -> str:
-        context_block = (
-            f"\n\n--- TRAINING ANALYTICS ---\n{json.dumps({k: v for k, v in context.items() if k != 'community_insights'}, indent=2)}\n--- END ANALYTICS ---"
-            + _format_community_block(context)
-        )
-        full_messages = [{"role": "system", "content": SYSTEM_PROMPT + context_block}]
-        full_messages.extend(messages)
+    """Local Qwen via Ollama (recommended for Qwen3-32B on a GPU workstation)."""
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+    async def generate(self, messages: list[dict], context: dict) -> str:
+        full_messages = _build_full_messages(messages, context)
+        payload: dict = {
+            "model": settings.llm_model,
+            "messages": full_messages,
+            "stream": False,
+            "think": settings.llm_think,
+            "options": {
+                "temperature": settings.llm_temperature,
+                "num_predict": settings.llm_max_tokens,
+            },
+        }
+
+        async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
             resp = await client.post(
-                f"{settings.llm_base_url}/api/chat",
-                json={"model": settings.llm_model, "messages": full_messages, "stream": False},
+                f"{settings.llm_base_url.rstrip('/')}/api/chat",
+                json=payload,
             )
             resp.raise_for_status()
             return resp.json()["message"]["content"]
 
 
-class MLXLLMProvider(LLMProvider):
-    """Placeholder for MLX-native Qwen inference on Apple Silicon.
+class OpenAICompatibleLLMProvider(LLMProvider):
+    """vLLM, SGLang, or any OpenAI-compatible inference server."""
 
-    To enable: pip install mlx-lm and implement generate() using mlx_lm.load/generate.
-    Architecture is ready for LoRA fine-tuning via mlx-lm's adapter support.
-    """
+    async def generate(self, messages: list[dict], context: dict) -> str:
+        full_messages = _build_full_messages(messages, context)
+        base = settings.llm_base_url.rstrip("/")
+        url = base if base.endswith("/chat/completions") else f"{base}/chat/completions"
+
+        async with httpx.AsyncClient(timeout=settings.llm_timeout) as client:
+            resp = await client.post(
+                url,
+                headers=_auth_headers(),
+                json={
+                    "model": settings.llm_model,
+                    "messages": full_messages,
+                    "temperature": settings.llm_temperature,
+                    "max_tokens": settings.llm_max_tokens,
+                },
+            )
+            resp.raise_for_status()
+            return resp.json()["choices"][0]["message"]["content"]
+
+
+_mlx_model_cache: dict[str, tuple] = {}
+
+
+def _load_mlx_model():
+    from mlx_lm import load  # type: ignore
+
+    model_id = settings.llm_model
+    if model_id not in _mlx_model_cache:
+        _mlx_model_cache[model_id] = load(model_id)
+    return _mlx_model_cache[model_id]
+
+
+def _mlx_generate_sync(full_messages: list[dict]) -> str:
+    from mlx_lm import generate  # type: ignore
+    from mlx_lm.sample_utils import make_sampler  # type: ignore
+
+    model, tokenizer = _load_mlx_model()
+    if hasattr(tokenizer, "apply_chat_template"):
+        prompt = tokenizer.apply_chat_template(
+            full_messages,
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+    else:
+        prompt = "\n".join(f"{m['role']}: {m['content']}" for m in full_messages) + "\nassistant:"
+
+    sampler = make_sampler(temp=settings.llm_temperature)
+    return generate(
+        model,
+        tokenizer,
+        prompt=prompt,
+        max_tokens=settings.llm_max_tokens,
+        sampler=sampler,
+        verbose=False,
+    )
+
+
+class MLXLLMProvider(LLMProvider):
+    """MLX-native inference on Apple Silicon (~1–3 GB quantized models)."""
 
     async def generate(self, messages: list[dict], context: dict) -> str:
         try:
-            from mlx_lm import generate, load  # type: ignore
-
-            model, tokenizer = load(settings.llm_model)
-            context_block = (
-                f"\n\nTraining data:\n{json.dumps({k: v for k, v in context.items() if k != 'community_insights'}, indent=2)}"
-                + _format_community_block(context)
-            )
-            prompt = SYSTEM_PROMPT + context_block + "\n\nUser: " + messages[-1]["content"] + "\nAssistant:"
-            return generate(model, tokenizer, prompt=prompt, max_tokens=512)
+            full_messages = _build_full_messages(messages, context)
+            return await asyncio.to_thread(_mlx_generate_sync, full_messages)
         except ImportError:
             fallback = MockLLMProvider()
             return await fallback.generate(messages, context)
@@ -171,6 +246,7 @@ def get_llm_provider() -> LLMProvider:
     providers = {
         "mock": MockLLMProvider,
         "ollama": OllamaLLMProvider,
+        "openai": OpenAICompatibleLLMProvider,
         "mlx": MLXLLMProvider,
     }
     cls = providers.get(settings.llm_provider, MockLLMProvider)
