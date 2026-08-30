@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 import httpx
 
 from app.config import settings
+from app.services.llm.muscle_groups import detect_muscle_groups
 from app.services.social import gather_community_insights
 
 
@@ -23,7 +24,8 @@ Guidelines:
 - Explain plateaus with evidence from trends, RPE, frequency, and volume
 - Never invent data not present in the context
 - If data is insufficient, say so and suggest what to track
-- When community insights are present, briefly weave in 1–2 relevant takeaways and mention the subreddit"""
+- When community insights are present, briefly weave in 1–2 relevant takeaways and mention the subreddit
+- If the context includes a MUSCLE GROUP FOCUS block, the user asked about a specific muscle group (chest, back, legs, shoulders, arms, or core) — explicitly name that muscle group in your answer and lead with the exercises listed there, even if the user didn't name a specific exercise"""
 
 
 class LLMProvider(ABC):
@@ -49,11 +51,28 @@ def _format_community_block(context: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_muscle_focus_block(context: dict) -> str:
+    focus = context.get("muscle_group_focus")
+    if not focus:
+        return ""
+    groups = ", ".join(focus["detected_muscle_groups"])
+    matches = focus["matching_exercises"]
+    lines = [f"\n\n--- MUSCLE GROUP FOCUS: {groups} ---"]
+    if matches:
+        lines.append(json.dumps(matches, indent=2))
+    else:
+        lines.append(f"(no logged exercises tagged with muscle group: {groups})")
+    lines.append("--- END MUSCLE GROUP FOCUS ---")
+    return "\n".join(lines)
+
+
 def _build_full_messages(messages: list[dict], context: dict) -> list[dict]:
+    skip_keys = {"community_insights", "muscle_group_focus"}
     context_block = (
         f"\n\n--- TRAINING ANALYTICS ---\n"
-        f"{json.dumps({k: v for k, v in context.items() if k != 'community_insights'}, indent=2)}\n"
+        f"{json.dumps({k: v for k, v in context.items() if k not in skip_keys}, indent=2)}\n"
         f"--- END ANALYTICS ---"
+        + _format_muscle_focus_block(context)
         + _format_community_block(context)
     )
     full_messages = [{"role": "system", "content": SYSTEM_PROMPT + context_block}]
@@ -86,6 +105,27 @@ class MockLLMProvider(LLMProvider):
                 if item.get("snippet"):
                     lines.append(f"  _{item['snippet'][:180]}{'…' if len(item.get('snippet', '')) > 180 else ''}_")
             return base + "\n".join(lines)
+
+        muscle_focus = context.get("muscle_group_focus")
+        if muscle_focus:
+            groups = "/".join(muscle_focus["detected_muscle_groups"])
+            matches = muscle_focus["matching_exercises"]
+            if matches:
+                lines = [f"**{groups.title()} Exercises**\n"]
+                for e in matches:
+                    trend = e.get("trend_last_4", [])
+                    trend_str = " → ".join(f"{t['e1rm']} lbs e1RM" for t in trend) if trend else "insufficient data"
+                    lines.append(
+                        f"• **{e['name']}** — e1RM {e['estimated_1rm']} lbs "
+                        f"(PR {e['pr_weight']}×{e['pr_reps']}), {e['frequency_per_week']:.1f}x/week, "
+                        f"last performed {e.get('last_performed', 'unknown')}. Trend: {trend_str}."
+                    )
+                return with_community("\n".join(lines))
+            article = "an" if groups[0] in "aeiou" else "a"
+            return with_community(
+                f"You don't have any logged **{groups}** exercises yet. "
+                f"Log {article} {groups} workout and I'll be able to analyze it."
+            )
 
         if "bench" in user_msg:
             bench = next((e for e in exercises if "bench" in e["name"].lower()), None)
@@ -261,6 +301,15 @@ class CoachService:
         insights = await gather_community_insights(message)
         sources = [i.to_dict() for i in insights]
         enriched = {**context, "community_insights": sources}
+
+        detected_groups = detect_muscle_groups(message)
+        if detected_groups:
+            exercises = context.get("exercises", [])
+            matches = [e for e in exercises if (e.get("muscle_group") or "").lower() in detected_groups]
+            enriched["muscle_group_focus"] = {
+                "detected_muscle_groups": detected_groups,
+                "matching_exercises": matches,
+            }
 
         messages = [{"role": m["role"], "content": m["content"]} for m in history]
         messages.append({"role": "user", "content": message})
