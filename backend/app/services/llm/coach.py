@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 import httpx
 
 from app.config import settings
+from app.services.llm.intent import extract_query_intent
 from app.services.llm.muscle_groups import detect_muscle_groups
 from app.services.social import gather_community_insights
 
@@ -25,7 +26,8 @@ Guidelines:
 - Never invent data not present in the context
 - If data is insufficient, say so and suggest what to track
 - When community insights are present, briefly weave in 1–2 relevant takeaways and mention the subreddit
-- If the context includes a MUSCLE GROUP FOCUS block, the user asked about a specific muscle group (chest, back, legs, shoulders, arms, or core) — explicitly name that muscle group in your answer and lead with the exercises listed there, even if the user didn't name a specific exercise"""
+- If the context includes a MUSCLE GROUP FOCUS block, the user asked about a specific muscle group (chest, back, legs, shoulders, arms, or core) — explicitly name that muscle group in your answer and lead with the exercises listed there, even if the user didn't name a specific exercise
+- If the context includes a QUERY INTENT block, it's a structured extraction of the user's message (exercise, problem, weight, reps, goal, timeframe, experience_level — any field may be null). Treat non-null fields as confirmed facts about what the user is asking; don't ask them to repeat information already present there. If "problem" is "plateau", address it as a plateau using the exercise's trend/RPE/frequency data. If "goal" or "experience_level" is set, tailor the recommendation to it"""
 
 
 class LLMProvider(ABC):
@@ -66,13 +68,25 @@ def _format_muscle_focus_block(context: dict) -> str:
     return "\n".join(lines)
 
 
+def _format_query_intent_block(context: dict) -> str:
+    intent = context.get("query_intent")
+    if not intent:
+        return ""
+    return (
+        f"\n\n--- QUERY INTENT ---\n"
+        f"{json.dumps(intent, indent=2)}\n"
+        f"--- END QUERY INTENT ---"
+    )
+
+
 def _build_full_messages(messages: list[dict], context: dict) -> list[dict]:
-    skip_keys = {"community_insights", "muscle_group_focus"}
+    skip_keys = {"community_insights", "muscle_group_focus", "query_intent"}
     context_block = (
         f"\n\n--- TRAINING ANALYTICS ---\n"
         f"{json.dumps({k: v for k, v in context.items() if k not in skip_keys}, indent=2)}\n"
         f"--- END ANALYTICS ---"
         + _format_muscle_focus_block(context)
+        + _format_query_intent_block(context)
         + _format_community_block(context)
     )
     full_messages = [{"role": "system", "content": SYSTEM_PROMPT + context_block}]
@@ -127,6 +141,30 @@ class MockLLMProvider(LLMProvider):
                 f"Log {article} {groups} workout and I'll be able to analyze it."
             )
 
+        intent = context.get("query_intent")
+        if intent and intent.get("problem") == "plateau":
+            target_name = intent.get("exercise")
+            lift = next((e for e in exercises if e["name"] == target_name), None) if target_name else None
+            if lift:
+                trend = lift.get("trend_last_4", [])
+                issues = []
+                if lift["frequency_per_week"] < 1.5:
+                    issues.append(f"Low frequency ({lift['frequency_per_week']:.1f}x/week) — aim for 2x/week minimum")
+                if lift.get("avg_rpe") and lift["avg_rpe"] > 9:
+                    issues.append(f"High average RPE ({lift['avg_rpe']}) — you may be training too close to failure")
+                if len(trend) >= 2 and trend[-1]["e1rm"] <= trend[0]["e1rm"]:
+                    issues.append("e1RM has flatlined over recent sessions")
+                if not issues:
+                    issues.append("Volume or recovery may be limiting — check sleep, nutrition, and weekly volume trends")
+
+                goal_line = f"\n\nGoal: **{intent['goal']}**." if intent.get("goal") else ""
+                return with_community(
+                    f"**{lift['name']} Plateau Analysis**\n\n"
+                    f"Current e1RM: **{lift['estimated_1rm']} lbs**. "
+                    f"Last performed: {lift.get('last_performed', 'unknown')}.{goal_line}\n\n"
+                    f"Likely factors:\n" + "\n".join(f"• {i}" for i in issues)
+                )
+
         if "bench" in user_msg:
             bench = next((e for e in exercises if "bench" in e["name"].lower()), None)
             if bench:
@@ -140,27 +178,6 @@ class MockLLMProvider(LLMProvider):
                     f"at **{bench['frequency_per_week']:.1f}x/week**.\n\n"
                     f"Recent e1RM trend: {trend_str}.\n\n"
                     f"{'Avg RPE: ' + str(bench['avg_rpe']) + ' — intensity looks appropriate.' if bench.get('avg_rpe') else 'Start logging RPE for better recommendations.'}"
-                )
-
-        if "squat" in user_msg and ("stop" in user_msg or "plateau" in user_msg or "stuck" in user_msg):
-            squat = next((e for e in exercises if "squat" in e["name"].lower()), None)
-            if squat:
-                trend = squat.get("trend_last_4", [])
-                issues = []
-                if squat["frequency_per_week"] < 1.5:
-                    issues.append(f"Low frequency ({squat['frequency_per_week']:.1f}x/week) — aim for 2x/week minimum")
-                if squat.get("avg_rpe") and squat["avg_rpe"] > 9:
-                    issues.append(f"High average RPE ({squat['avg_rpe']}) — you may be training too close to failure")
-                if len(trend) >= 2 and trend[-1]["e1rm"] <= trend[0]["e1rm"]:
-                    issues.append("e1RM has flatlined over recent sessions")
-                if not issues:
-                    issues.append("Volume or recovery may be limiting — check sleep, nutrition, and weekly volume trends")
-
-                return with_community(
-                    f"**Squat Plateau Analysis**\n\n"
-                    f"Current e1RM: **{squat['estimated_1rm']} lbs**. "
-                    f"Last performed: {squat.get('last_performed', 'unknown')}.\n\n"
-                    f"Likely factors:\n" + "\n".join(f"• {i}" for i in issues)
                 )
 
         if "today" in user_msg or "should i do" in user_msg:
@@ -302,14 +319,19 @@ class CoachService:
         sources = [i.to_dict() for i in insights]
         enriched = {**context, "community_insights": sources}
 
+        exercises = context.get("exercises", [])
+
         detected_groups = detect_muscle_groups(message)
         if detected_groups:
-            exercises = context.get("exercises", [])
             matches = [e for e in exercises if (e.get("muscle_group") or "").lower() in detected_groups]
             enriched["muscle_group_focus"] = {
                 "detected_muscle_groups": detected_groups,
                 "matching_exercises": matches,
             }
+
+        intent = extract_query_intent(message, exercises)
+        if intent:
+            enriched["query_intent"] = intent
 
         messages = [{"role": m["role"], "content": m["content"]} for m in history]
         messages.append({"role": "user", "content": message})
