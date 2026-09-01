@@ -234,7 +234,7 @@ def build_llm_context(db: Session, user_id: int) -> dict:
         },
         "recent_prs": dashboard.recent_prs,
         "top_exercises": dashboard.top_exercises,
-        "volume_trend_last_8": dashboard.volume_trend[-8:],
+        "volume_trend_last_8": [v.model_dump() for v in dashboard.volume_trend[-8:]],
         "exercises": [
             {
                 "name": e.exercise_name,

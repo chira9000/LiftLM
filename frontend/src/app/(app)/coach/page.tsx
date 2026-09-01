@@ -41,14 +41,13 @@ export default function CoachPage() {
         ...prev,
         { role: "assistant", content: res.reply, sources: res.sources ?? [] },
       ]);
-    } catch {
-      setMessages((prev) => [
-        ...prev,
-        {
-          role: "assistant",
-          content: "Sorry, I couldn't process that. Make sure the backend is running.",
-        },
-      ]);
+    } catch (err) {
+      console.error(err);
+      const message =
+        err instanceof Error && err.message !== "Request failed"
+          ? `Sorry, I couldn't process that: ${err.message}`
+          : "Sorry, I couldn't process that. Make sure the backend is running.";
+      setMessages((prev) => [...prev, { role: "assistant", content: message }]);
     } finally {
       setLoading(false);
     }
