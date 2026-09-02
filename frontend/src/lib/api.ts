@@ -107,6 +107,13 @@ export interface CommunitySource {
   num_comments: number;
 }
 
+export interface PubMedCitation {
+  pmid: string;
+  citation: string;
+  url: string;
+  topic: string;
+}
+
 export const api = {
   login: (email: string, password: string) =>
     request<{ access_token: string; user: User }>("/auth/login", {
@@ -132,8 +139,11 @@ export const api = {
   progression: () => request<ProgressionRecommendation[]>("/progression"),
 
   chat: (message: string, history: { role: string; content: string }[]) =>
-    request<{ reply: string; sources?: CommunitySource[] }>("/coach/chat", {
-      method: "POST",
-      body: JSON.stringify({ message, history }),
-    }),
+    request<{ reply: string; sources?: CommunitySource[]; citations?: PubMedCitation[] }>(
+      "/coach/chat",
+      {
+        method: "POST",
+        body: JSON.stringify({ message, history }),
+      }
+    ),
 };

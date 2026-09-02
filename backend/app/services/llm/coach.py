@@ -7,7 +7,9 @@ from abc import ABC, abstractmethod
 import httpx
 
 from app.config import settings
+from app.services.knowledge import gather_knowledge_context
 from app.services.llm.intent import extract_query_intent
+from app.services.llm.intent_classifier import classify_intent
 from app.services.llm.muscle_groups import detect_muscle_groups
 from app.services.social import gather_community_insights
 
@@ -27,7 +29,9 @@ Guidelines:
 - If data is insufficient, say so and suggest what to track
 - When community insights are present, briefly weave in 1–2 relevant takeaways and mention the subreddit
 - If the context includes a MUSCLE GROUP FOCUS block, the user asked about a specific muscle group (chest, back, legs, shoulders, arms, or core) — explicitly name that muscle group in your answer and lead with the exercises listed there, even if the user didn't name a specific exercise
-- If the context includes a QUERY INTENT block, it's a structured extraction of the user's message (exercise, problem, weight, reps, goal, timeframe, experience_level — any field may be null). Treat non-null fields as confirmed facts about what the user is asking; don't ask them to repeat information already present there. If "problem" is "plateau", address it as a plateau using the exercise's trend/RPE/frequency data. If "goal" or "experience_level" is set, tailor the recommendation to it"""
+- If the context includes a QUERY INTENT block, it's a structured extraction of the user's message (exercise, problem, weight, reps, goal, timeframe, experience_level — any field may be null). Treat non-null fields as confirmed facts about what the user is asking; don't ask them to repeat information already present there. If "problem" is "plateau", address it as a plateau using the exercise's trend/RPE/frequency data. If "goal" or "experience_level" is set, tailor the recommendation to it
+- If the context includes an INTENT CLASSIFICATION block, "intent" is the classified category of the message (PROGRAMMING, EXERCISE_SELECTION, TECHNIQUE, PROGRESSION, PLATEAU, RECOVERY, NUTRITION, EQUIPMENT, WORKOUT_ANALYSIS, GENERAL, or UNKNOWN), with optional "body_part" and "goal". Let it set the shape of your answer — e.g. PLATEAU walks through trend/RPE/frequency evidence, RECOVERY addresses rest/sleep/deload, NUTRITION gives dietary guidance, EQUIPMENT suggests substitutions, TECHNIQUE focuses on form cues, PROGRAMMING/EXERCISE_SELECTION focus on structuring or picking exercises
+- If the context includes a KNOWLEDGE BASE block, it contains curated training-science summaries (progressive overload, volume, RPE/RIR, recovery, programming, deloading, technique, plateaus, strength standards, nutrition, etc.) with real supporting PubMed citations. Use it to ground advice in evidence and weave in a citation inline (e.g. "per Schoenfeld et al., PMID 27433992") when it directly supports a claim you're making. Never cite a PubMed source, PMID, or study that isn't present in that block"""
 
 
 class LLMProvider(ABC):
@@ -79,14 +83,49 @@ def _format_query_intent_block(context: dict) -> str:
     )
 
 
+def _format_intent_classification_block(context: dict) -> str:
+    classification = context.get("intent_classification")
+    if not classification:
+        return ""
+    return (
+        f"\n\n--- INTENT CLASSIFICATION ---\n"
+        f"{json.dumps(classification, indent=2)}\n"
+        f"--- END INTENT CLASSIFICATION ---"
+    )
+
+
+def _format_knowledge_block(context: dict) -> str:
+    knowledge = context.get("knowledge_base")
+    entries = knowledge.get("entries") if knowledge else None
+    if not entries:
+        return ""
+    lines = ["\n\n--- KNOWLEDGE BASE (curated + PubMed) ---"]
+    for entry in entries:
+        lines.append(f"\n[{entry['title']}]")
+        lines.append(entry["summary"])
+        for point in entry["key_points"]:
+            lines.append(f"  • {point}")
+        if entry["citations"]:
+            lines.append("  Sources:")
+            for c in entry["citations"]:
+                lines.append(f"    - {c['citation']} (PMID:{c['pmid']}, {c['url']})")
+    lines.append("--- END KNOWLEDGE BASE ---")
+    return "\n".join(lines)
+
+
 def _build_full_messages(messages: list[dict], context: dict) -> list[dict]:
-    skip_keys = {"community_insights", "muscle_group_focus", "query_intent"}
+    skip_keys = {
+        "community_insights", "muscle_group_focus", "query_intent",
+        "intent_classification", "knowledge_base",
+    }
     context_block = (
         f"\n\n--- TRAINING ANALYTICS ---\n"
         f"{json.dumps({k: v for k, v in context.items() if k not in skip_keys}, indent=2)}\n"
         f"--- END ANALYTICS ---"
         + _format_muscle_focus_block(context)
         + _format_query_intent_block(context)
+        + _format_intent_classification_block(context)
+        + _format_knowledge_block(context)
         + _format_community_block(context)
     )
     full_messages = [{"role": "system", "content": SYSTEM_PROMPT + context_block}]
@@ -108,6 +147,17 @@ class MockLLMProvider(LLMProvider):
         exercises = context.get("exercises", [])
         summary = context.get("summary", {})
         community = context.get("community_insights") or []
+        knowledge_entries = (context.get("knowledge_base") or {}).get("entries") or []
+
+        def with_knowledge(base: str) -> str:
+            if not knowledge_entries:
+                return base
+            lines = ["\n\n**Research context**"]
+            for entry in knowledge_entries:
+                lines.append(f"• **{entry['title']}** — {entry['summary']}")
+                for c in entry["citations"][:2]:
+                    lines.append(f"  _{c['citation']}_ (PMID:{c['pmid']})")
+            return base + "\n".join(lines)
 
         def with_community(base: str) -> str:
             if not community:
@@ -119,6 +169,9 @@ class MockLLMProvider(LLMProvider):
                 if item.get("snippet"):
                     lines.append(f"  _{item['snippet'][:180]}{'…' if len(item.get('snippet', '')) > 180 else ''}_")
             return base + "\n".join(lines)
+
+        def with_context(base: str) -> str:
+            return with_community(with_knowledge(base))
 
         muscle_focus = context.get("muscle_group_focus")
         if muscle_focus:
@@ -134,9 +187,9 @@ class MockLLMProvider(LLMProvider):
                         f"(PR {e['pr_weight']}×{e['pr_reps']}), {e['frequency_per_week']:.1f}x/week, "
                         f"last performed {e.get('last_performed', 'unknown')}. Trend: {trend_str}."
                     )
-                return with_community("\n".join(lines))
+                return with_context("\n".join(lines))
             article = "an" if groups[0] in "aeiou" else "a"
-            return with_community(
+            return with_context(
                 f"You don't have any logged **{groups}** exercises yet. "
                 f"Log {article} {groups} workout and I'll be able to analyze it."
             )
@@ -158,7 +211,7 @@ class MockLLMProvider(LLMProvider):
                     issues.append("Volume or recovery may be limiting — check sleep, nutrition, and weekly volume trends")
 
                 goal_line = f"\n\nGoal: **{intent['goal']}**." if intent.get("goal") else ""
-                return with_community(
+                return with_context(
                     f"**{lift['name']} Plateau Analysis**\n\n"
                     f"Current e1RM: **{lift['estimated_1rm']} lbs**. "
                     f"Last performed: {lift.get('last_performed', 'unknown')}.{goal_line}\n\n"
@@ -170,7 +223,7 @@ class MockLLMProvider(LLMProvider):
             if bench:
                 trend = bench.get("trend_last_4", [])
                 trend_str = " → ".join(f"{t['e1rm']} lbs e1RM" for t in trend) if trend else "insufficient data"
-                return with_community(
+                return with_context(
                     f"**Bench Press Analysis**\n\n"
                     f"Your estimated 1RM is **{bench['estimated_1rm']} lbs** "
                     f"(PR: {bench['pr_weight']}×{bench['pr_reps']}). "
@@ -183,7 +236,7 @@ class MockLLMProvider(LLMProvider):
         if "today" in user_msg or "should i do" in user_msg:
             if exercises:
                 top = exercises[0]
-                return with_community(
+                return with_context(
                     f"**Today's Recommendation**\n\n"
                     f"Based on your data, focus on **{top['name']}**:\n"
                     f"• Work up to {top['pr_weight']} lbs × {max(top['pr_reps'] - 1, 5)} reps for 3-4 working sets\n"
@@ -193,7 +246,7 @@ class MockLLMProvider(LLMProvider):
                     f"Check the Progression tab for exercise-specific weight recommendations."
                 )
 
-        return with_community(
+        return with_context(
             f"**Training Overview**\n\n"
             f"You've completed **{summary.get('total_workouts', 0)} workouts** "
             f"with **{summary.get('total_volume', 0):,.0f} lbs** total volume.\n\n"
@@ -314,7 +367,7 @@ class CoachService:
     def __init__(self):
         self.provider = get_llm_provider()
 
-    async def chat(self, message: str, history: list[dict], context: dict) -> tuple[str, list[dict]]:
+    async def chat(self, message: str, history: list[dict], context: dict) -> tuple[str, list[dict], list[dict]]:
         insights = await gather_community_insights(message)
         sources = [i.to_dict() for i in insights]
         enriched = {**context, "community_insights": sources}
@@ -333,7 +386,20 @@ class CoachService:
         if intent:
             enriched["query_intent"] = intent
 
+        enriched["intent_classification"] = classify_intent(message)
+
+        knowledge = await gather_knowledge_context(message)
+        citations: list[dict] = []
+        if knowledge:
+            enriched["knowledge_base"] = knowledge
+            seen_pmids: set[str] = set()
+            for entry in knowledge["entries"]:
+                for c in entry["citations"]:
+                    if c["pmid"] not in seen_pmids:
+                        citations.append({**c, "topic": entry["title"]})
+                        seen_pmids.add(c["pmid"])
+
         messages = [{"role": m["role"], "content": m["content"]} for m in history]
         messages.append({"role": "user", "content": message})
         reply = await self.provider.generate(messages, enriched)
-        return reply, sources
+        return reply, sources, citations

@@ -169,5 +169,5 @@ coach = CoachService()
 async def coach_chat(body: ChatRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     context = build_llm_context(db, user.id)
     history = [{"role": m.role, "content": m.content} for m in body.history]
-    reply, sources = await coach.chat(body.message, history, context)
-    return ChatResponse(reply=reply, context_used=context, sources=sources)
+    reply, sources, citations = await coach.chat(body.message, history, context)
+    return ChatResponse(reply=reply, context_used=context, sources=sources, citations=citations)

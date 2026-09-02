@@ -83,12 +83,17 @@ Deterministic engine analyzes:
 Outputs a **Progression Score** (0–100) and concrete weight/reps/sets recommendations.
 
 ### AI Coach
-Chat interface powered by structured analytics plus Reddit community search (lifting subreddits). Example questions:
+Chat interface powered by structured analytics, a curated training-science knowledge base (with PubMed citations), and Reddit community search (lifting subreddits). Example questions:
 - "How is my bench progressing?"
 - "What should I do for bench today?"
 - "Why have I stopped progressing on squat?"
 
 Each reply can include linked Reddit sources. Toggle with `REDDIT_ENABLED` in `backend/.env`.
+
+### Training-Science Knowledge Base
+The coach keyword-matches each question against a curated set of training-science topics — exercise selection, training principles, progressive overload, volume, intensity, RPE/RIR, recovery, programming, deloading, technique, common plateaus, strength standards, and nutrition basics (`backend/app/services/knowledge/library.py`). Matched topics are injected into the LLM's context alongside the user's analytics, and each comes with real supporting PubMed citations.
+
+At request time the coach also queries the [NCBI E-utilities API](https://www.ncbi.nlm.nih.gov/books/NBK25501/) live to supplement the curated citations with fresh PubMed results (`backend/app/services/knowledge/pubmed.py`), cached in-memory to avoid hammering NCBI. Replies surface a **PubMed research** section with links to the cited studies. Toggle with `KNOWLEDGE_ENABLED` / `PUBMED_ENABLED` in `backend/.env`.
 
 To enable live Reddit search, create a free app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) (type: **script**), then set:
 
@@ -209,6 +214,7 @@ LiftLM/
 │   │   │   ├── analytics/         # Volume, e1RM, trends
 │   │   │   ├── progression/       # Overload engine + scores
 │   │   │   ├── social/            # Reddit (extensible) community research
+│   │   │   ├── knowledge/         # Curated training-science KB + live PubMed search
 │   │   │   └── llm/               # Coach service (mock/ollama/mlx)
 │   │   ├── seed.py                # Sample data
 │   │   └── main.py

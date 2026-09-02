@@ -31,6 +31,15 @@ class Settings(BaseSettings):
         "GymAdvice",
     ]
 
+    # Training-science knowledge base (curated topics + live PubMed citations)
+    knowledge_enabled: bool = True
+    knowledge_result_limit: int = 2
+    pubmed_enabled: bool = True
+    pubmed_result_limit: int = 2
+    pubmed_cache_ttl: float = 86400.0  # seconds; PubMed's index for a topic barely moves day-to-day
+    pubmed_email: str = "demo@liftai.app"  # required by NCBI E-utilities etiquette guidelines
+    pubmed_api_key: str = ""  # optional; raises the NCBI rate limit from 3/s to 10/s
+
     class Config:
         env_file = ".env"
 

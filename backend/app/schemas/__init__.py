@@ -166,7 +166,15 @@ class CommunitySource(BaseModel):
     num_comments: int = 0
 
 
+class PubMedCitationOut(BaseModel):
+    pmid: str
+    citation: str
+    url: str
+    topic: str
+
+
 class ChatResponse(BaseModel):
     reply: str
     context_used: dict
     sources: list[CommunitySource] = []
+    citations: list[PubMedCitationOut] = []

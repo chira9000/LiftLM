@@ -3,12 +3,13 @@
 import { useEffect, useRef, useState } from "react";
 import { Send, Bot, User, Sparkles, ExternalLink } from "lucide-react";
 import PageHeader from "@/components/PageHeader";
-import { api, type CommunitySource } from "@/lib/api";
+import { api, type CommunitySource, type PubMedCitation } from "@/lib/api";
 
 interface Message {
   role: "user" | "assistant";
   content: string;
   sources?: CommunitySource[];
+  citations?: PubMedCitation[];
 }
 
 const SUGGESTIONS = [
@@ -39,7 +40,7 @@ export default function CoachPage() {
       const res = await api.chat(text, history);
       setMessages((prev) => [
         ...prev,
-        { role: "assistant", content: res.reply, sources: res.sources ?? [] },
+        { role: "assistant", content: res.reply, sources: res.sources ?? [], citations: res.citations ?? [] },
       ]);
     } catch (err) {
       console.error(err);
@@ -101,6 +102,30 @@ export default function CoachPage() {
                 }`}
               >
                 <div className="whitespace-pre-wrap">{msg.content}</div>
+                {msg.role === "assistant" && msg.citations && msg.citations.length > 0 && (
+                  <div className="mt-3 border-t border-surface-border pt-3">
+                    <p className="mb-2 text-xs font-medium uppercase tracking-wide text-surface-muted">
+                      PubMed research
+                    </p>
+                    <ul className="space-y-1.5">
+                      {msg.citations.map((c) => (
+                        <li key={c.pmid}>
+                          <a
+                            href={c.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="group flex items-start gap-1.5 text-xs text-brand-400 transition-colors hover:text-brand-300"
+                          >
+                            <ExternalLink className="mt-0.5 h-3 w-3 shrink-0 opacity-70" />
+                            <span>
+                              [{c.topic}] {c.citation}
+                            </span>
+                          </a>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
                 {msg.role === "assistant" && msg.sources && msg.sources.length > 0 && (
                   <div className="mt-3 border-t border-surface-border pt-3">
                     <p className="mb-2 text-xs font-medium uppercase tracking-wide text-surface-muted">
