@@ -1,4 +1,5 @@
 # LiftAI
+# complicated data is not ideally measured by the client, yet LLM is asking client to measure it
 
 An AI-powered lifting coach that combines workout tracking, gym analytics, progressive-overload recommendations, and an LLM chat interface.
 
