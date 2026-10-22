@@ -40,7 +40,7 @@ python -m venv .venv
 source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env
-uvicorn app.main:app --reload --port 8000
+uvicorn app.main:app --reload --port 4000
 ```
 
 The API seeds a demo account on first startup with 8 weeks of sample workout data.
@@ -201,7 +201,7 @@ LLM_MODEL=Qwen/Qwen3-8B
 | GET | `/api/progression` | Progression recommendations |
 | POST | `/api/coach/chat` | AI coach chat |
 
-API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+API docs: [http://localhost:4000/docs](http://localhost:4000/docs)
 
 ## Testing
 
