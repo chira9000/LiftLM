@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 
 from app.auth import hash_password
 from app.database import SessionLocal, engine
+from app.exercise_catalog import catalog_exercises
 from app.models import Base, Exercise, SetLog, User, Workout, WorkoutExercise
 
 EXERCISES = [
@@ -40,11 +41,23 @@ def _make_workout(db, user, name, days_ago, exercise_sets):
             )
 
 
+def seed_exercises(db):
+    """Insert any exercises (demo set + library) not already in the DB, matched by name."""
+    existing = {name for (name,) in db.query(Exercise.name).all()}
+    for name, muscle, equip in [*EXERCISES, *catalog_exercises()]:
+        if name not in existing:
+            db.add(Exercise(name=name, muscle_group=muscle, equipment=equip))
+            existing.add(name)
+    db.flush()
+
+
 def seed_database():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
+        seed_exercises(db)
         if db.query(User).filter(User.email == "demo@liftai.app").first():
+            db.commit()
             return
 
         user = User(
@@ -53,10 +66,6 @@ def seed_database():
             hashed_password=hash_password("demo1234"),
         )
         db.add(user)
-        db.flush()
-
-        for name, muscle, equip in EXERCISES:
-            db.add(Exercise(name=name, muscle_group=muscle, equipment=equip))
         db.flush()
 
         # 8 weeks of progressive sample data

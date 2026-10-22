@@ -10,7 +10,7 @@ from app.config import settings
 from app.services.knowledge import gather_knowledge_context
 from app.services.llm.intent import extract_query_intent
 from app.services.llm.intent_classifier import classify_intent
-from app.services.llm.muscle_groups import detect_muscle_groups
+from app.services.llm.muscle_groups import detect_muscle_groups, parent_muscle_group
 from app.services.social import gather_community_insights
 
 
@@ -376,7 +376,7 @@ class CoachService:
 
         detected_groups = detect_muscle_groups(message)
         if detected_groups:
-            matches = [e for e in exercises if (e.get("muscle_group") or "").lower() in detected_groups]
+            matches = [e for e in exercises if parent_muscle_group(e.get("muscle_group") or "") in detected_groups]
             enriched["muscle_group_focus"] = {
                 "detected_muscle_groups": detected_groups,
                 "matching_exercises": matches,

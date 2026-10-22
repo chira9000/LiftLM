@@ -21,6 +21,20 @@ MUSCLE_GROUP_KEYWORDS: dict[str, list[str]] = {
 }
 
 
+# Finer-grained `Exercise.muscle_group` values (see app.exercise_catalog) -> canonical group.
+MUSCLE_GROUP_PARENTS: dict[str, str] = {
+    "biceps": "arms", "triceps": "arms", "forearms": "arms",
+    "quads": "legs", "hamstrings": "legs", "glutes": "legs", "calves": "legs", "adductors": "legs",
+    "traps": "back", "lower back": "back",
+}
+
+
+def parent_muscle_group(muscle_group: str) -> str:
+    """Roll a stored `Exercise.muscle_group` up to its canonical group (identity if already canonical)."""
+    muscle_group = muscle_group.lower()
+    return MUSCLE_GROUP_PARENTS.get(muscle_group, muscle_group)
+
+
 def detect_muscle_groups(text: str) -> list[str]:
     """Return canonical muscle groups mentioned in `text`, in order of first mention."""
     text_lower = text.lower()

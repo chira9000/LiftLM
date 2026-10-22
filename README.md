@@ -1,5 +1,6 @@
 # LiftAI
-# complicated data is not ideally measured by the client, yet LLM is asking client to measure it
+
+[![CI](https://github.com/chira9000/LiftLM/actions/workflows/ci.yml/badge.svg)](https://github.com/chira9000/LiftLM/actions/workflows/ci.yml)
 
 An AI-powered lifting coach that combines workout tracking, gym analytics, progressive-overload recommendations, and an LLM chat interface.
 
@@ -202,6 +203,16 @@ LLM_MODEL=Qwen/Qwen3-8B
 
 API docs: [http://localhost:8000/docs](http://localhost:8000/docs)
 
+## Testing
+
+Unit tests cover the deterministic core: e1RM estimation, the progression scoring functions, muscle-group detection, and the intent classifier.
+
+```bash
+cd backend
+pip install -r requirements-dev.txt
+pytest
+```
+
 ## Project Structure
 
 ```
@@ -216,9 +227,11 @@ LiftLM/
 │   │   │   ├── progression/       # Overload engine + scores
 │   │   │   ├── social/            # Reddit (extensible) community research
 │   │   │   ├── knowledge/         # Curated training-science KB + live PubMed search
-│   │   │   └── llm/               # Coach service (mock/ollama/mlx)
+│   │   │   └── llm/               # Coach service, intent + muscle-group classifiers
+│   │   ├── exercise_catalog.py    # ~180-exercise library seeded on startup
 │   │   ├── seed.py                # Sample data
 │   │   └── main.py
+│   ├── tests/                     # pytest unit tests
 │   └── requirements.txt
 ├── frontend/
 │   └── src/
